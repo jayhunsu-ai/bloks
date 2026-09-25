@@ -32,6 +32,7 @@ import type {
 import { newEventId, newId } from "../contracts.ts";
 import { appendNative } from "./native.ts";
 import { describeEarlyExit, describeSpawnError } from "./spawn-error.ts";
+import { getProviderCostGate } from "../agent-os/cost-gate.ts";
 
 const DRIVER_KIND = "codex";
 const NATIVE_SOURCE = "codex.app-server";
@@ -185,12 +186,31 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         );
       }
 
-      const child = spawn(config.cli, appServerArgs, {
+      const reservationId = turn.env?.AGENT_OS_COST_RESERVATION_ID;
+      if (!reservationId) {
+        throw new Error("Agent OS cost reservation missing; refusing to spawn Codex.");
+      }
+      const costGate = getProviderCostGate();
+      const providerModel = turn.model ?? MODELS.default;
+      await costGate.authorize({
+        reservationId,
+        provider: DRIVER_KIND,
+        model: providerModel,
+        projectId: turn.env?.AGENT_OS_PROJECT_ID,
+        taskId: turn.env?.AGENT_OS_TASK_ID,
+      });
+      let child;
+      try {
+        child = spawn(config.cli, appServerArgs, {
         cwd: turn.cwd ?? homedir(),
         env,
         stdio: ["pipe", "pipe", "pipe"],
-        detached: true,
-      });
+          detached: true,
+        });
+      } catch (error) {
+        await costGate.release({ reservationId, provider: DRIVER_KIND, model: providerModel });
+        throw error;
+      }
 
       const asks = new Map<string, Answer>();
       const rpcAsks = new Map<unknown, { requestId: string; providerThreadId: unknown }>();
@@ -222,6 +242,7 @@ export const CodexDriver: ProviderDriver<CodexConfig> = {
         for (const answer of [...asks.values()]) answer("deny", "Bloks: the turn ended", "turn-ended");
         rpc.failPending(new Error("turn settled"));
         running.delete(threadId);
+        void costGate.settle({ reservationId, provider: DRIVER_KIND, model: providerModel, actualCostUsd: null, result: ok ? "ok" : "error" });
         emit({ ...envelope(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
         abort();
       };
