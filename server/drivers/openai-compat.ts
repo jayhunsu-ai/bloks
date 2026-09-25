@@ -26,6 +26,7 @@ import { callMcpTool, listMcpTools, type McpAccess } from "../composio.ts";
 import { newEventId, newId } from "../contracts.ts";
 import type { ProviderSpec } from "../providers.ts";
 import { appendNative } from "./native.ts";
+import { getProviderCostGate } from "../agent-os/cost-gate.ts";
 
 export interface CompatConfig {
   url: string;
@@ -707,6 +708,17 @@ export function openAiCompatDriver(spec: ProviderSpec): ProviderDriver<CompatCon
         if (needsKey && !apiKey) throw new Error(`${spec.name} is not connected yet`);
         if (active.has(threadId)) throw new Error("a turn is already running on this thread");
         const turnId = newId();
+        const reservationId = turn.env?.AGENT_OS_COST_RESERVATION_ID;
+        if (!reservationId) throw new Error(`Agent OS cost reservation missing; refusing ${spec.name} request.`);
+        const costGate = getProviderCostGate();
+        const providerModel = turn.model || models.default;
+        await costGate.authorize({
+          reservationId,
+          provider: spec.kind,
+          model: providerModel,
+          projectId: turn.env?.AGENT_OS_PROJECT_ID,
+          taskId: turn.env?.AGENT_OS_TASK_ID,
+        });
         const abort = new AbortController();
         const asks = new Map<string, (answer: string) => void>();
         active.set(threadId, { abort, turnId, asks });
@@ -740,11 +752,12 @@ export function openAiCompatDriver(spec: ProviderSpec): ProviderDriver<CompatCon
                 threadId,
                 turnId,
                 messages,
-                turn.model || models.default,
+                providerModel,
                 turn,
                 abort.signal,
               );
               active.delete(threadId);
+              void costGate.settle({ reservationId, provider: spec.kind, model: providerModel, actualCostUsd: null, result: "ok" });
               emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: null, cost: null });
               return;
             }
@@ -762,6 +775,7 @@ export function openAiCompatDriver(spec: ProviderSpec): ProviderDriver<CompatCon
               emit({ ...base(threadId, turnId), type: "thread.token-usage.updated", ...usage });
             }
             active.delete(threadId);
+            void costGate.settle({ reservationId, provider: spec.kind, model: providerModel, actualCostUsd: usage ? usage.input + usage.output : null, result: "ok" });
             emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: null, cost: null });
           } catch (e) {
             const entry = active.get(threadId);
@@ -771,6 +785,7 @@ export function openAiCompatDriver(spec: ProviderSpec): ProviderDriver<CompatCon
             if (!aborted) {
               emit({ ...base(threadId, turnId), type: "runtime.error", message: (e as Error).message });
             }
+            void costGate.settle({ reservationId, provider: spec.kind, model: providerModel, actualCostUsd: null, result: "error" });
             emit({
               ...base(threadId, turnId),
               type: "turn.completed",
@@ -836,10 +851,16 @@ export function openAiCompatDriver(spec: ProviderSpec): ProviderDriver<CompatCon
             return () => listeners.delete(listener);
           },
         },
-        generateText: async (prompt: string) => {
-          const { text } = await complete([{ role: "user", content: prompt }], spec.small || models.default, {
+        generateText: async (prompt: string, options?: { costReservationId?: string }) => {
+          const reservationId = options?.costReservationId;
+          if (!reservationId) throw new Error(`Agent OS cost reservation missing; refusing ${spec.name} one-shot request.`);
+          const costGate = getProviderCostGate();
+          const providerModel = spec.small || models.default;
+          await costGate.authorize({ reservationId, provider: spec.kind, model: providerModel });
+          const { text, usage } = await complete([{ role: "user", content: prompt }], providerModel, {
             stream: false,
           });
+          await costGate.settle({ reservationId, provider: spec.kind, model: providerModel, actualCostUsd: usage ? usage.input + usage.output : null, result: "ok" });
           return text;
         },
         dispose: async () => {
