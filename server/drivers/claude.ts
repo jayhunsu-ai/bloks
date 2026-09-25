@@ -50,6 +50,7 @@ import type {
 import { newEventId, newId } from "../contracts.ts";
 import { appendNative } from "./native.ts";
 import { describeEarlyExit, describeSpawnError } from "./spawn-error.ts";
+import { getProviderCostGate } from "../agent-os/cost-gate.ts";
 
 const DRIVER_KIND = "claudeAgent";
 
@@ -348,16 +349,42 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
       delete env.CLAUDECODE;
       delete env.CLAUDE_CODE_ENTRYPOINT;
 
-      const child = spawn(config.cli, argv, {
-        cwd: turn.cwd ?? homedir(),
-        env,
-        stdio: ["pipe", "pipe", "pipe"],
-        // its own process group, so killing -pid takes the MCP servers too
-        detached: true,
+      // FINANCIAL AIRLOCK: the provider process must not exist until Agent OS
+      // has authorized an existing reservation. The reservation is created by
+      // the Agent OS control plane; Blocks never invents or enlarges it.
+      const reservationId = turn.env?.AGENT_OS_COST_RESERVATION_ID;
+      if (!reservationId) {
+        throw new Error(
+          "Agent OS cost reservation missing; refusing to spawn Claude. " +
+            "Create/reserve budget in Agent OS and pass AGENT_OS_COST_RESERVATION_ID.",
+        );
+      }
+      const costGate = getProviderCostGate();
+      const providerModel = turn.model ?? MODELS.default;
+      await costGate.authorize({
+        reservationId,
+        provider: DRIVER_KIND,
+        model: providerModel,
+        projectId: turn.env?.AGENT_OS_PROJECT_ID,
+        taskId: turn.env?.AGENT_OS_TASK_ID,
       });
 
+      let child;
+      try {
+        child = spawn(config.cli, argv, {
+          cwd: turn.cwd ?? homedir(),
+          env,
+          stdio: ["pipe", "pipe", "pipe"],
+          // its own process group, so killing -pid takes the MCP servers too
+          detached: true,
+        });
+      } catch (error) {
+        await costGate.release({ reservationId, provider: DRIVER_KIND, model: providerModel });
+        throw error;
+      }
+
       let finished = false;
-      const finish = (ok: boolean, stopReason: string | null, cost: number | null = null) => {
+      const finish = async (ok: boolean, stopReason: string | null, cost: number | null = null) => {
         if (finished) return;
         finished = true;
         broker?.close();
@@ -369,6 +396,23 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
           }
         }
         running.delete(threadId);
+        try {
+          await costGate.settle({
+            reservationId,
+            provider: DRIVER_KIND,
+            model: providerModel,
+            actualCostUsd: cost,
+            result: ok ? "ok" : "error",
+          });
+        } catch (gateError) {
+          emit({
+            ...envelope(threadId, turnId),
+            type: "runtime.error",
+            message:
+              "Agent OS cost settlement failed: " +
+              (gateError instanceof Error ? gateError.message : String(gateError)),
+          });
+        }
         emit({ ...envelope(threadId, turnId), type: "turn.completed", ok, stopReason, cost });
       };
 
@@ -499,7 +543,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             signIn: "run `claude` once to sign in",
           }),
         });
-        finish(false, "spawn_error");
+        void finish(false, "spawn_error");
       });
 
       child.on("close", (code) => {
@@ -514,7 +558,7 @@ export const ClaudeDriver: ProviderDriver<ClaudeConfig> = {
             signIn: "run `claude` once in a terminal",
           }),
         });
-        finish(false, "exit_before_result");
+        void finish(false, "exit_before_result");
       });
 
       const abort = () => {

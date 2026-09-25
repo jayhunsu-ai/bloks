@@ -270,7 +270,7 @@ export interface ProviderInstance {
   snapshot(): Promise<ProviderSnapshot>;
   /** A cheap one-shot completion, for naming and summarising. Optional:
    * not every engine has something small enough to be worth using. */
-  generateText?(prompt: string): Promise<string>;
+  generateText?(prompt: string, options?: { costReservationId?: string }): Promise<string>;
   dispose(): Promise<void>;
 }
 

@@ -106,19 +106,50 @@ export const AntigravityDriver: ProviderDriver<AntigravityConfig> = {
       if (turn.model) argv.push("--model", turn.model);
       if (resume) argv.push("--conversation", resume);
 
-      const child = spawn(config.cli, argv, {
+      const reservationId = turn.env?.AGENT_OS_COST_RESERVATION_ID;
+      if (!reservationId) throw new Error("Agent OS cost reservation missing; refusing Antigravity provider.");
+      const costGate = getProviderCostGate();
+      const providerModel = turn.model ?? MODELS.default;
+      await costGate.authorize({
+        reservationId,
+        provider: DRIVER_KIND,
+        model: providerModel,
+        projectId: turn.env?.AGENT_OS_PROJECT_ID,
+        taskId: turn.env?.AGENT_OS_TASK_ID,
+      });
+
+      let child;
+      try {
+        child = spawn(config.cli, argv, {
         cwd: turn.cwd ?? homedir(),
         // the turn's own credential (see server/agent-cli.ts)
         env: { ...process.env, ...(turn.env ?? {}) },
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
-      });
+          detached: true,
+        });
+      } catch (error) {
+        await costGate.release({ reservationId, provider: DRIVER_KIND, model: providerModel });
+        throw error;
+      }
 
       let finished = false;
       const finish = (ok: boolean, stopReason: string | null) => {
         if (finished) return;
         finished = true;
         running.delete(threadId);
+        void costGate.settle({
+          reservationId,
+          provider: DRIVER_KIND,
+          model: providerModel,
+          actualCostUsd: null,
+          result: ok ? "ok" : "error",
+        }).catch((error) => {
+          emit({
+            ...envelope(threadId, turnId),
+            type: "runtime.error",
+            message: "Agent OS cost settlement failed: " + (error instanceof Error ? error.message : String(error)),
+          });
+        });
         emit({ ...envelope(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
       };
 
