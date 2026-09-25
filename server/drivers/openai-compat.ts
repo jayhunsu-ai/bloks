@@ -775,7 +775,7 @@ export function openAiCompatDriver(spec: ProviderSpec): ProviderDriver<CompatCon
               emit({ ...base(threadId, turnId), type: "thread.token-usage.updated", ...usage });
             }
             active.delete(threadId);
-            void costGate.settle({ reservationId, provider: spec.kind, model: providerModel, actualCostUsd: usage ? usage.input + usage.output : null, result: "ok" });
+            void costGate.settle({ reservationId, provider: spec.kind, model: providerModel, actualCostUsd: null, result: "ok" });
             emit({ ...base(threadId, turnId), type: "turn.completed", ok: true, stopReason: null, cost: null });
           } catch (e) {
             const entry = active.get(threadId);
