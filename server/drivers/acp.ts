@@ -41,6 +41,7 @@ import { attachRpc } from "../harness/jsonrpc-stdio.ts";
 import { onPath, widenPath } from "../path.ts";
 import { appendNative } from "./native.ts";
 import { describeEarlyExit, describeSpawnError } from "./spawn-error.ts";
+import { getProviderCostGate } from "../agent-os/cost-gate.ts";
 
 export interface AcpSpec {
   kind: string;
@@ -249,12 +250,29 @@ export function acpDriver(spec: AcpSpec): ProviderDriver<AcpConfig> {
           }) ?? []),
         ];
         widenPath();
-        const child = spawn(config.cli, argv, {
+        const reservationId = turn.env?.AGENT_OS_COST_RESERVATION_ID;
+        if (!reservationId) throw new Error("Agent OS cost reservation missing; refusing to spawn ACP provider.");
+        const costGate = getProviderCostGate();
+        const providerModel = turn.model ?? models.default;
+        await costGate.authorize({
+          reservationId,
+          provider: spec.kind,
+          model: providerModel,
+          projectId: turn.env?.AGENT_OS_PROJECT_ID,
+          taskId: turn.env?.AGENT_OS_TASK_ID,
+        });
+        let child;
+        try {
+          child = spawn(config.cli, argv, {
           cwd: turn.cwd ?? homedir(),
           env: childEnv(turn.env),
           stdio: ["pipe", "pipe", "pipe"],
-          detached: true,
-        });
+            detached: true,
+          });
+        } catch (error) {
+          await costGate.release({ reservationId, provider: spec.kind, model: providerModel });
+          throw error;
+        }
 
         const state = { settled: false, text: "", live: false };
         const asks = new Map<string, (behavior: string, message?: string) => void>();
@@ -301,6 +319,7 @@ export function acpDriver(spec: AcpSpec): ProviderDriver<AcpConfig> {
           if (state.text.trim()) {
             emit({ ...base(threadId, turnId), type: "item.completed", itemType: "assistant_text", text: state.text });
           }
+          void costGate.settle({ reservationId, provider: spec.kind, model: providerModel, actualCostUsd: null, result: ok ? "ok" : "error" });
           emit({ ...base(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
           stop();
         };
