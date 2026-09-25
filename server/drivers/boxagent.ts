@@ -152,10 +152,16 @@ export const BoxAgentDriver: ProviderDriver<BoxAgentConfig> = {
         .filter((part) => part !== undefined)
         .join("\n");
 
-      const started: any = await call(`/boxes/${boxId}/prompt`, {
-        method: "POST",
-        body: JSON.stringify({ provider: agentFor(model), model, prompt }),
-      });
+      let started: any;
+      try {
+        started = await call(`/boxes/${boxId}/prompt`, {
+          method: "POST",
+          body: JSON.stringify({ provider: agentFor(model), model, prompt }),
+        });
+      } catch (error) {
+        await costGate.release({ reservationId, provider: DRIVER_KIND, model });
+        throw error;
+      }
       appendNative(threadId, {
         dir: "out",
         source: "box.prompt",
