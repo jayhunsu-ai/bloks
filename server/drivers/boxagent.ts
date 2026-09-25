@@ -29,6 +29,7 @@ import type {
 } from "../contracts.ts";
 import { newEventId, newId } from "../contracts.ts";
 import { appendNative } from "./native.ts";
+import { getProviderCostGate } from "../agent-os/cost-gate.ts";
 
 const DRIVER_KIND = "boxAgent";
 const BOX_API = "https://ascii.dev/api/box/v1";
@@ -131,6 +132,16 @@ export const BoxAgentDriver: ProviderDriver<BoxAgentConfig> = {
 
       const turnId = newId();
       const model = turn.model || MODELS.default;
+      const reservationId = turn.env?.AGENT_OS_COST_RESERVATION_ID;
+      if (!reservationId) throw new Error("Agent OS cost reservation missing; refusing BoxAgent request.");
+      const costGate = getProviderCostGate();
+      await costGate.authorize({
+        reservationId,
+        provider: DRIVER_KIND,
+        model,
+        projectId: turn.env?.AGENT_OS_PROJECT_ID,
+        taskId: turn.env?.AGENT_OS_TASK_ID,
+      });
 
       const prompt = [
         turn.system,
@@ -175,6 +186,21 @@ export const BoxAgentDriver: ProviderDriver<BoxAgentConfig> = {
 
         const settle = (ok: boolean, stopReason: string | null) => {
           running.delete(threadId);
+          void costGate
+            .settle({
+              reservationId,
+              provider: DRIVER_KIND,
+              model,
+              actualCostUsd: null,
+              result: ok ? "ok" : "error",
+            })
+            .catch((error) => {
+              emit({
+                ...envelope(threadId, turnId),
+                type: "runtime.error",
+                message: "Agent OS cost settlement failed: " + (error instanceof Error ? error.message : String(error)),
+              });
+            });
           emit({ ...envelope(threadId, turnId), type: "turn.completed", ok, stopReason, cost: null });
         };
 
