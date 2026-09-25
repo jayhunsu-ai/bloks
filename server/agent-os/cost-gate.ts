@@ -24,7 +24,7 @@ export interface ProviderCostGate {
     reservationId: string;
     provider: string;
     model: string;
-    actualCostUsd: number;
+    actualCostUsd: number | null;
     result: "ok" | "error" | "denied";
   }): Promise<void> | void;
   release(input: { reservationId: string; provider: string; model: string }): Promise<void> | void;
