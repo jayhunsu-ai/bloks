@@ -857,11 +857,30 @@ export function openAiCompatDriver(spec: ProviderSpec): ProviderDriver<CompatCon
           const costGate = getProviderCostGate();
           const providerModel = spec.small || models.default;
           await costGate.authorize({ reservationId, provider: spec.kind, model: providerModel });
-          const { text, usage } = await complete([{ role: "user", content: prompt }], providerModel, {
-            stream: false,
-          });
-          await costGate.settle({ reservationId, provider: spec.kind, model: providerModel, actualCostUsd: usage ? usage.input + usage.output : null, result: "ok" });
-          return text;
+          try {
+            const { text } = await complete([{ role: "user", content: prompt }], providerModel, {
+              stream: false,
+            });
+            // Token counts are not USD. Until the provider exposes verified
+            // currency pricing at this seam, reconcile the full reservation.
+            await costGate.settle({
+              reservationId,
+              provider: spec.kind,
+              model: providerModel,
+              actualCostUsd: null,
+              result: "ok",
+            });
+            return text;
+          } catch (error) {
+            await costGate.settle({
+              reservationId,
+              provider: spec.kind,
+              model: providerModel,
+              actualCostUsd: null,
+              result: "error",
+            });
+            throw error;
+          }
         },
         dispose: async () => {
           for (const { abort } of active.values()) abort.abort();
