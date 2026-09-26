@@ -304,6 +304,8 @@ export interface ProviderRow {
   needsSignIn?: boolean;
   /** Whether this engine can run tools and touch files, or only chat. */
   agentic: boolean;
+  /** Credential is owned by the local desktop/server environment. */
+  serverEnvOnly?: boolean;
 }
 
 /** A reusable instruction set from the library (server/skills.ts). */
