@@ -36,6 +36,10 @@ contextBridge.exposeInMainWorld("bloks", {
   updateInstall: () => ipcRenderer.invoke("update:install"),
   relaunch: () => ipcRenderer.invoke("app:relaunch"),
   // a Bloks on another computer (electron/remote.mjs)
+  anthropicCredentialStatus: () => ipcRenderer.invoke("credentials:anthropic:status"),
+  anthropicCredentialSave: (value) => ipcRenderer.invoke("credentials:anthropic:save", value),
+  anthropicCredentialClear: () => ipcRenderer.invoke("credentials:anthropic:clear"),
+
   remoteStatus: () => ipcRenderer.invoke("remote:status"),
   remoteConnect: (link) => ipcRenderer.invoke("remote:connect", link),
   remoteDisconnect: () => ipcRenderer.invoke("remote:disconnect"),
