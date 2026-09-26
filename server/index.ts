@@ -4263,6 +4263,7 @@ async function providerCatalog() {
     auth: spec.auth,
     keyHint: spec.keyHint,
     keyPrefix: spec.keyPrefix,
+    serverEnvOnly: spec.serverEnvOnly === true,
     signInHint: undefined as string | undefined,
     docsUrl: spec.docsUrl,
     connected: connected.has(spec.kind),
