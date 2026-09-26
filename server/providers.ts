@@ -80,6 +80,7 @@ const OPENROUTER: ProviderSpec = {
 const ANTHROPIC: ProviderSpec = {
   kind: "anthropic",
   tools: true,
+  serverEnvOnly: true,
   name: "Anthropic",
   url: "https://api.anthropic.com",
   auth: "key",
