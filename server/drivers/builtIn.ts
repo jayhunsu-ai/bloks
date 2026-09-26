@@ -10,9 +10,11 @@ import { BoxAgentDriver } from "./boxagent.ts";
 import { ClaudeDriver } from "./claude.ts";
 import { CodexDriver } from "./codex.ts";
 import { openAiCompatDriver } from "./openai-compat.ts";
+import { anthropicDriver } from "./anthropic.ts";
 
 export const BUILT_IN_DRIVERS: readonly AnyProviderDriver[] = [
-  ...PROVIDER_SPECS.map(openAiCompatDriver),
+  ...PROVIDER_SPECS.filter((spec) => spec.kind !== "anthropic").map(openAiCompatDriver),
+  anthropicDriver(PROVIDER_SPECS.find((spec) => spec.kind === "anthropic")!),
   openAiCompatDriver(CUSTOM_SPEC),
   ...ACP_SPECS.map(acpDriver),
   AntigravityDriver,
