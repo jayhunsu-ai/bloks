@@ -50,9 +50,18 @@ export function anthropicDriver(spec: ProviderSpec): AnyProviderDriver {
         const model = turn.model || catalog.default;
         const messages = (turn.transcript ?? []).map((m) => ({ role: m.role, content: m.text }));
         messages.push({ role: "user", content: turn.text });
+        const price = PRICING[model];
+        const estimatedInputTokens = Math.ceil(JSON.stringify(messages).length / 4) + Math.ceil((turn.system?.length ?? 0) / 4);
+        const invocationCapUsd = Number(process.env.AGENT_OS_INVOCATION_CAP_USD ?? 5);
+        if (price && estimatedInputTokens * price.input / 1_000_000 >= invocationCapUsd) {
+          throw new Error("Agent OS denied Anthropic call: estimated input alone reaches the invocation budget.");
+        }
+        const outputBudget = price
+          ? Math.max(1, Math.floor((invocationCapUsd - (estimatedInputTokens / 1_000_000) * price.input) * 1_000_000 / price.output))
+          : 16_384;
         const body: Record<string, unknown> = {
           model,
-          max_tokens: 16_384,
+          max_tokens: Math.min(16_384, outputBudget),
           messages,
           stream: true,
           ...(turn.system ? { system: turn.system } : {}),
