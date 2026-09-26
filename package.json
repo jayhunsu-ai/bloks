@@ -69,7 +69,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwind-merge": "^3.7.0",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "@bro-s-start-it/agent-os": "file:../BRO-s-Start-it/agent-os"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.11",
