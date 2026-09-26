@@ -130,7 +130,6 @@ export function anthropicDriver(spec: ProviderSpec): AnyProviderDriver {
         }
         if (buffer.trim()) consume(buffer);
 
-        const price = PRICING[model];
         const cost = price ? (inputTokens / 1_000_000) * price.input + (outputTokens / 1_000_000) * price.output : null;
         return { text, inputTokens, outputTokens, stopReason, cost };
       };
