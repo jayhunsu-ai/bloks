@@ -23,6 +23,55 @@ const AUTH_NOTE: Record<ProviderRow["auth"], string> = {
   none: "Runs on this machine",
 };
 
+function ServerEnvKeyForm({ provider, onDone }: { provider: ProviderRow; onDone: () => void }) {
+  const [key, setKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    if (!key.trim() || saving) return;
+    setSaving(true);
+    setError(null);
+    try {
+      if (!window.bloks?.anthropicCredentialSave) {
+        throw new Error("The secure desktop credential store is only available in the installed app.");
+      }
+      await window.bloks.anthropicCredentialSave(key.trim());
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mt-2.5">
+      <div className="flex gap-2">
+        <Input
+          autoFocus
+          type="password"
+          value={key}
+          onChange={(e) => setKey(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void save();
+            if (e.key === "Escape") onDone();
+          }}
+          placeholder={provider.keyPrefix ? `${provider.keyPrefix}…` : "Paste your key"}
+          autoComplete="off"
+          className="h-8 text-[13px]"
+        />
+        <Button variant="secondary" onClick={() => void save()} disabled={!key.trim() || saving} className="w-[72px]">
+          {saving ? <Loader2 size={13} className="animate-spin" /> : <><Check size={13} /> Save</>}
+        </Button>
+      </div>
+      <div className="mt-1.5 text-[11.5px] text-muted-foreground">
+        Stored encrypted by this computer. Bloks restarts once so the local server can use it.
+      </div>
+      {error && <div className="mt-1.5 text-[12px] text-destructive">{error}</div>}
+    </div>
+  );
+}
+
 function KeyForm({ provider, onDone }: { provider: ProviderRow; onDone: () => void }) {
   const { dispatch } = useStore();
   const [key, setKey] = useState("");
@@ -83,6 +132,22 @@ function EngineRow({ provider }: { provider: ProviderRow }) {
   const instance = state.instances.find((i) => i.driverKind === provider.kind);
   const down = instance && instance.snapshot.state !== "available";
 
+  const saveServerCredential = () => setOpen(true);
+
+  const disconnectServerCredential = async () => {
+    setSigningIn(true);
+    setError(null);
+    try {
+      if (!window.bloks?.anthropicCredentialClear) {
+        throw new Error("The secure desktop credential store is only available in the installed app.");
+      }
+      await window.bloks.anthropicCredentialClear();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSigningIn(false);
+    }
+  };
+
   const signIn = () => {
     setSigningIn(true);
     setError(null);
@@ -97,6 +162,7 @@ function EngineRow({ provider }: { provider: ProviderRow }) {
   };
 
   const act = () => {
+    if (provider.serverEnvOnly) return saveServerCredential();
     if (provider.auth === "oauth") return signIn();
     if (provider.auth === "none") {
       return dispatch({ type: "connectProvider", kind: provider.kind });
@@ -126,7 +192,24 @@ function EngineRow({ provider }: { provider: ProviderRow }) {
           </div>
         </div>
 
-        {provider.auth === "cli" ? (
+        {provider.serverEnvOnly ? (
+          provider.connected ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => void disconnectServerCredential()}
+              disabled={signingIn}
+              className="shrink-0 text-muted-foreground hover:text-destructive"
+            >
+              Disconnect
+            </Button>
+          ) : (
+            <Button variant="secondary" size="sm" onClick={act} disabled={signingIn} className="shrink-0">
+              <Plus size={13} />
+              Key
+            </Button>
+          )
+        ) : provider.auth === "cli" ? (
           <span className="shrink-0 text-[11.5px] text-muted-foreground">
             {provider.connected ? "" : "Not found"}
           </span>
@@ -158,7 +241,9 @@ function EngineRow({ provider }: { provider: ProviderRow }) {
       </div>
 
       {open && !provider.connected && (
-        <KeyForm provider={provider} onDone={() => setOpen(false)} />
+        provider.serverEnvOnly
+          ? <ServerEnvKeyForm provider={provider} onDone={() => setOpen(false)} />
+          : <KeyForm provider={provider} onDone={() => setOpen(false)} />
       )}
       {provider.auth === "cli" && (!provider.connected || provider.needsSignIn) && (
         <div className="mt-1.5 pl-10 text-[11.5px] leading-relaxed text-muted-foreground">
