@@ -198,7 +198,14 @@ export function loadConfig(): AppConfig {
   // which is what a container or a CI run wants.
   for (const spec of PROVIDER_SPECS) {
     const fromEnv = process.env[envVarFor(spec.kind)];
-    if (fromEnv) cfg.providers[spec.kind] = { key: fromEnv, ...cfg.providers[spec.kind] };
+    if (spec.serverEnvOnly) {
+      // Never trust a persisted config-file credential for a server-only
+      // provider. The desktop shell supplies it through its OS store.
+      if (fromEnv) cfg.providers[spec.kind] = { ...cfg.providers[spec.kind], key: fromEnv };
+      else if (cfg.providers[spec.kind]?.key) delete cfg.providers[spec.kind].key;
+      continue;
+    }
+    if (fromEnv) cfg.providers[spec.kind] = { ...cfg.providers[spec.kind], key: fromEnv };
   }
   // the old xai slot is just the grok provider by another name
   if (cfg.xai?.key && !cfg.providers.grok?.key) {
