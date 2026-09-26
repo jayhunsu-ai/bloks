@@ -5,20 +5,20 @@ import { newEventId, newId } from "../contracts.ts";
 interface AnthropicConfig { url?: string }
 
 const DEFAULT_MODELS: ModelCatalog = {
-  default: "claude-sonnet-5",
+  default: "claude-opus-5-5",
   options: [
+    { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+    { id: "claude-fable-5-1", label: "Claude Fable 5.1" },
     { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
-    { id: "claude-opus-5", label: "Claude Opus 5" },
-    { id: "claude-fable-5", label: "Claude Fable 5" },
-    { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    { id: "claude-haiku-4-5-20251001", label: "Claude Haiku 4.5" },
   ],
 };
 
 const PRICING: Record<string, { input: number; output: number }> = {
+  "claude-opus-5-5": { input: 4, output: 20 },
+  "claude-fable-5-1": { input: 10, output: 50 },
   "claude-sonnet-5": { input: 2, output: 10 },
-  "claude-opus-5": { input: 5, output: 25 },
-  "claude-fable-5": { input: 10, output: 50 },
-  "claude-haiku-4-5": { input: 1, output: 5 },
+  "claude-haiku-4-5-20251001": { input: 1, output: 5 },
 };
 
 export function anthropicDriver(spec: ProviderSpec): AnyProviderDriver {
@@ -66,7 +66,7 @@ export function anthropicDriver(spec: ProviderSpec): AnyProviderDriver {
           stream: true,
           ...(turn.system ? { system: turn.system } : {}),
         };
-        if (/^(claude-(sonnet-5|opus-5|fable-5))$/.test(model) && turn.effort) {
+        if (/^(claude-(sonnet-5|opus-5-5|fable-5-1))$/.test(model) && turn.effort) {
           body.output_config = { effort: turn.effort };
         }
 
