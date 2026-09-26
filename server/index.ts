@@ -6509,6 +6509,11 @@ const server = createServer(async (req, res) => {
         return json(res, 400, { error: "add a custom endpoint from Settings" });
       }
       if (spec.auth === "cli") return json(res, 400, { error: `${spec.name} signs in through its own CLI` });
+      // Anthropic is intentionally environment-only. The API credential is
+      // a server secret, never a value the Bloks UI can submit or store.
+      if (spec.kind === "anthropic") {
+        return json(res, 400, { error: "Anthropic is connected from the server environment via ANTHROPIC_API_KEY." });
+      }
       const body = await readBody(req);
       const key = String(body.key ?? "").trim();
       // an override for people pointing at a proxy or a self-hosted box
