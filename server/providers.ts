@@ -77,6 +77,28 @@ const OPENROUTER: ProviderSpec = {
   small: "google/gemini-2.5-flash",
 };
 
+const ANTHROPIC: ProviderSpec = {
+  kind: "anthropic",
+  tools: false,
+  name: "Anthropic",
+  url: "https://api.anthropic.com",
+  auth: "key",
+  keyHint: "API key from console.anthropic.com",
+  keyPrefix: "sk-ant-",
+  docsUrl: "https://docs.anthropic.com/en/api/messages",
+  models: {
+    default: "claude-sonnet-5",
+    options: [
+      { id: "claude-sonnet-5", label: "Claude Sonnet 5" },
+      { id: "claude-opus-5", label: "Claude Opus 5" },
+      { id: "claude-fable-5", label: "Claude Fable 5" },
+      { id: "claude-haiku-4-5", label: "Claude Haiku 4.5" },
+    ],
+  },
+  prefer: [/^claude-(sonnet|opus|fable|haiku)/],
+  small: "claude-haiku-4-5",
+};
+
 const GEMINI: ProviderSpec = {
   kind: "gemini",
   tools: true,
@@ -231,6 +253,7 @@ const OLLAMA: ProviderSpec = {
 
 /** Every provider that speaks the OpenAI chat shape. */
 export const PROVIDER_SPECS: readonly ProviderSpec[] = [
+  ANTHROPIC,
   OPENROUTER,
   GEMINI,
   XAI,
