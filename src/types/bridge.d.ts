@@ -31,6 +31,13 @@ declare global {
       forget(): Promise<void>;
     };
     bloks?: {
+      /** Persistent local Anthropic credential. The value is write-only
+       * from the renderer; Electron stores it with safeStorage and never
+       * returns the secret. */
+      anthropicCredentialStatus?(): Promise<{ configured: boolean }>;
+      anthropicCredentialSave?(value: string): Promise<{ ok: boolean }>;
+      anthropicCredentialClear?(): Promise<{ ok: boolean }>;
+
       /** One frame of this Mac's screen as a data: URL. Goes through the
        * main process so macOS attributes Screen Recording to the app. */
       screenFrame(): Promise<string | null>;
