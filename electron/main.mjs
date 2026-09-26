@@ -122,7 +122,34 @@ app.on("second-instance", () => {
  * workspace. So the probe requires the pid we just forked and that the
  * responder is serving static files, which a dev server does not.
  */
-async function startServerOn(port) {
+async function anthropicCredentialFile() {
+  return path.join(app.getPath("userData"), "anthropic.bin");
+}
+
+function readAnthropicCredential() {
+  try {
+    if (!fs.existsSync(anthropicCredentialFile()) || !safeStorage.isEncryptionAvailable()) return null;
+    const value = safeStorage.decryptString(fs.readFileSync(anthropicCredentialFile()));
+    return value.startsWith("sk-ant-") ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveAnthropicCredential(value) {
+  const key = typeof value === "string" ? value.trim() : "";
+  if (!key.startsWith("sk-ant-")) throw new Error("That does not look like an Anthropic API key.");
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("This computer cannot securely store the Anthropic key.");
+  fs.writeFileSync(anthropicCredentialFile(), safeStorage.encryptString(key));
+  process.env.ANTHROPIC_API_KEY = key;
+}
+
+function clearAnthropicCredential() {
+  fs.rmSync(anthropicCredentialFile(), { force: true });
+  delete process.env.ANTHROPIC_API_KEY;
+}
+
+function startServerOn(port) {
   const entry = path.join(process.resourcesPath, "server", "index.js");
   const child = utilityProcess.fork(entry, [], {
     env: {
@@ -825,6 +852,11 @@ app.whenReady().then(async () => {
   // Must precede every fork below, or the children keep launchd's PATH.
   await adoptLoginShellPath();
 
+  // Anthropic is server-only. Load the OS-protected credential into the
+  // Electron main process, then inherit it only into the local harness.
+  const anthropicKey = readAnthropicCredential();
+  if (anthropicKey) process.env.ANTHROPIC_API_KEY = anthropicKey;
+
   registerCuaIpc();
   // Started before the window so the harness can read the connection
   // descriptor on its first turn. Failure is survivable: computer use
@@ -977,6 +1009,26 @@ async function startRemote(profile) {
     return false;
   }
 }
+
+ipcMain.handle("credentials:anthropic:status", () => ({
+  configured: Boolean(readAnthropicCredential() || process.env.ANTHROPIC_API_KEY),
+}));
+
+ipcMain.handle("credentials:anthropic:save", async (_event, value) => {
+  if (!app.isPackaged) throw new Error("Persistent Anthropic credentials are available in the installed desktop app.");
+  saveAnthropicCredential(value);
+  app.relaunch();
+  app.exit(0);
+  return { ok: true };
+});
+
+ipcMain.handle("credentials:anthropic:clear", async () => {
+  if (!app.isPackaged) throw new Error("Persistent Anthropic credentials are available in the installed desktop app.");
+  clearAnthropicCredential();
+  app.relaunch();
+  app.exit(0);
+  return { ok: true };
+});
 
 ipcMain.handle("remote:status", () =>
   remoteProfile ? { mode: "remote", host: remoteProfile.host, ...remoteState } : { mode: "local" },
