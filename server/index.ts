@@ -45,6 +45,7 @@ import { mayApprove, memberCan, memberFrame, memberMessage, type MemberAction, t
 import { CLI_PROVIDERS, CUSTOM_SPEC, PROVIDER_SPECS, normalizeCompatUrl, specFor } from "./providers.ts";
 import { callbackPage, finishOAuth, startOAuth, supportsOAuth } from "./oauth.ts";
 import type { RuntimeEvent } from "./contracts.ts";
+import { createAgentOSRuntime } from "@bro-s-start-it/agent-os";
 
 import { BUILT_IN_DRIVERS } from "./drivers/builtIn.ts";
 import { EventBus } from "./harness/bus.ts";
@@ -283,6 +284,20 @@ ensureDirs();
 const cfg = loadConfig();
 const registry = new ProviderRegistry(BUILT_IN_DRIVERS);
 await registry.load(instanceConfigs(cfg));
+
+/** Agent OS is the control plane around Blocks' provider runtime. Blocks
+ * still owns provider lifecycle and UI state; Agent OS owns the financial
+ * airlock that must be crossed before an API turn starts. */
+const agentOS = createAgentOSRuntime();
+const agentOSAdapters = new Map<string, ReturnType<typeof agentOS.guard>>();
+function guardedAgentOSAdapter(instance: { instanceId: string; adapter: Parameters<typeof agentOS.guard>[0] }) {
+  let guarded = agentOSAdapters.get(instance.instanceId);
+  if (!guarded) {
+    guarded = agentOS.guard(instance.adapter);
+    agentOSAdapters.set(instance.instanceId, guarded);
+  }
+  return guarded;
+}
 
 const bus = new EventBus();
 bus.attach(registry.instances());
@@ -2115,7 +2130,7 @@ async function startTurn(
       }
       memoryJournal.begin(task.id, bot.id);
 
-      await instance.adapter.sendTurn({
+      await guardedAgentOSAdapter(instance).agentOS.reserveAndSend({
         threadId: task.id,
         cwd: turnCwd,
         ...(credential
@@ -2156,6 +2171,8 @@ async function startTurn(
           (credential ? `\n\n${cliBriefing(`node "${AGENT_CLI}"`)}` : "") +
           (project ? `\n\n${briefFor(project)}` : ""),
         integrations,
+        projectId: project?.id ?? "blocks-default",
+        taskId: task.id,
       });
       if (integrations.computer) startScreenPoller(bot.id);
       store.markTaskDispatched(bot.id, task.id, instanceId);
